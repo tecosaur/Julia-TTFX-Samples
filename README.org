@@ -1,0 +1,7 @@
+#+title: Julia TTFX Samples
+#+author: tecosaur
+
+A collection of TTFX workloads for Julia packages, for longitudinal performance
+testing.
+
+*[[https://github.com/tecosaur/Julia-TTFX-Samples/issues/new?template=create-task.yml][Submit a new TTFX task]]*

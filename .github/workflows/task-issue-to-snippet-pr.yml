@@ -1,0 +1,177 @@
+name: Create TTFX snippet PR
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  newtask-to-pr:
+    if: contains(github.event.issue.labels.*.name, '🛠 newtask')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Label issue as running
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              labels: ['⚙️ running']
+            });
+
+      - uses: actions/checkout@v3
+
+      - name: Parse issue form fields
+        id: parser
+        uses: stefanbuck/github-issue-parser@v3
+        with:
+          template-path: .github/ISSUE_TEMPLATE/create-task.yml
+
+      - name: Set up Julia
+        uses: julia-actions/setup-julia@v1
+        with:
+          version: '1'
+
+      - name: Run create-snippet.jl
+        id: gensnippet
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          set -o pipefail
+          cat <<'JULIA_TTFX_SNIPPET_SCRIPT' > snippet.jl
+          ${{ steps.parser.outputs.issueparser_task_code }}
+          JULIA_TTFX_SNIPPET_SCRIPT
+          julia create-snippet.jl \
+            --name "${{ steps.parser.outputs.issueparser_task_name }}" \
+            --package "${{ steps.parser.outputs.issueparser_primary_package }}" \
+            --deps "${{ steps.parser.outputs.issueparser_dependencies }}" \
+            --author "${{ github.event.issue.user.login }}" \
+            --attribution "${{ steps.parser.outputs.issueparser_attribution }}" \
+            --snippet-file "snippet.jl" \
+            2>&1 | tee create-snippet-logs.txt
+          rm snippet.jl
+
+      - name: Remove logs on success
+        if: steps.gensnippet.outcome == 'success'
+        run: rm -f create-snippet-logs.txt
+
+      - name: Create Pull Request
+        if: steps.gensnippet.outcome == 'success'
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          author: ${{ github.event.issue.user.login }} <${{ github.event.issue.user.login }}@users.noreply.github.com>
+          committer: GitHub Actions <actions@github.com>
+          commit-message: |
+            Add ${{ steps.parser.outputs.issueparser_primary-package }} TTFX snippet: ${{ steps.parser.outputs.issueparser_task_name }}
+          branch: ttfx-snippet-${{ github.event.issue.number }}
+          title: "New task: [${{ steps.parser.outputs.issueparser_primary_package }}] ${{ steps.parser.outputs.issueparser_task_name }}"
+          body: |
+            **Package:** ${{ steps.parser.outputs.issueparser_primary_package }}
+            **Task:** @${{ steps.parser.outputs.issueparser_task_name }}
+            **Submitted by:** @${{ github.event.issue.user.login }}
+
+            Closes #${{ github.event.issue.number }}
+          labels: 🤖 automated-ttfx-snippet
+          base: main
+
+      - name: Label automerge if owner==author or org-member
+        if: steps.gensnippet.outcome == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = '${{ steps.gensnippet.outputs.pkg_repo_owner }}';
+            const repo  = '${{ steps.gensnippet.outputs.pkg_repo_name }}';
+            if (!owner || !repo) {
+              console.log("No upstream repo detected; skipping automerge.");
+              return;
+            }
+
+            const user = context.payload.issue.user.login;
+
+            if (user === owner) {
+              console.log(`Issue author ${user} is the repo owner; auto-merging.`);
+            } else {
+              const { data: repoMeta } = await github.rest.repos.get({ owner, repo });
+              if (repoMeta.owner.type === 'Organization') {
+                const { data: orgs } = await github.rest.orgs.listForUser({ username: user });
+                const isMember = orgs.some(o => o.login === owner);
+                if (isMember) {
+                  console.log(`${user} is a public member of org ${owner}; auto-merging.`);
+                } else {
+                  console.log(`${user} is not a public member of ${owner}; skipping.`);
+                  return;
+                }
+              } else {
+                console.log(`${owner} is a user, not an org; skipping org-member check.`);
+                return;
+              }
+            }
+
+            const pr = parseInt('${{ steps.create_pr.outputs.pull-request-number }}', 10);
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              issue_number: pr,
+              labels: ['automerge']
+            });
+            console.log("Added `automerge` label to PR #" + pr);
+
+      - name: Remove running label from issue
+        if: always()
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            try {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.issue.number,
+                name: '⚙️ running'
+              });
+            } catch (e) {
+              /* ignore if already removed */
+            }
+
+      - name: Handle failure
+        if: steps.gensnippet.outcome == 'failure'
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const logs = fs.readFileSync('create-snippet-logs.txt', 'utf8');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              body:
+                "⚠️ `create-snippet.jl` failed. Logs:\n\n```bash\n" +
+                logs +
+                "\n```\n\nIf you can resolve the error, please open a new task issue with corrected code."
+            });
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              labels: ['failed']
+            });
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              state: 'closed'
+            });

@@ -1,0 +1,31 @@
+name: Normalize TTFX Issue Title
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+
+jobs:
+  rename:
+    if: contains(github.event.issue.labels.*.name, '🛠 newtask')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rename issue to TTFX format
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const body = context.payload.issue.body;
+            const pkgMatch  = body.match(/###\s*Primary package\s*\n+(.+)/i);
+            const taskMatch = body.match(/###\s*Task name\s*\n+(.+)/i);
+            const pkg  = pkgMatch?.[1].trim();
+            const task = taskMatch?.[1].trim();
+            if (pkg && task) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo:  context.repo.repo,
+                issue_number: context.issue.number,
+                title: `[${pkg}] ${task}`
+              });
+            }

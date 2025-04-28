@@ -1,0 +1,56 @@
+name: "🚀 Create new TTFX task"
+description: "Submit code for a new TTFX code snippet"
+title: "New task (will be automatically retitled)"
+labels:
+  - 🛠 newtask
+body:
+  - type: input
+    id: primary_package
+    attributes:
+      label: "Primary package"
+      description: "Name of the main Julia package you’re measuring"
+      placeholder: "e.g. DataFrames"
+    validations:
+      required: true
+
+  - type: input
+    id: task_name
+    attributes:
+      label: "Task name"
+      description: "A descriptive name for the task"
+      placeholder: "e.g. Create table"
+    validations:
+      required: true
+
+  - type: input
+    id: dependencies
+    attributes:
+      label: "Dependencies (optional)"
+      description: "Other packages or dependencies required (comma-separated)"
+      placeholder: "e.g. CSV, Tables"
+    validations:
+      required: false
+
+  - type: input
+    id: attribution
+    attributes:
+      label: "Attribution (optional)"
+      description: "A source that needs crediting for the code to be submitted"
+      placeholder: "e.g. The DataFrames test suite"
+    validations:
+      required: false
+
+  - type: textarea
+    id: task_code
+    attributes:
+      label: "Task code"
+      description: |
+        Paste your minimal Julia code to measure TTFX here.
+        Either omit all `using MyPkg` statements, or put them all at the start.
+
+        The code should be the minium required to reach a relevant TTFX output.
+      render: julia
+      placeholder: |
+        MyPkg.dothing()
+    validations:
+      required: true

@@ -1,0 +1,29 @@
+name: Auto-merge PRs
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - labeled
+
+permissions:
+  pull-requests: write    # allow merging
+
+jobs:
+  automerge:
+    if: contains(github.event.pull_request.labels.*.name, 'automerge')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fast-forward merge via rebase
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            console.log(`Auto-merging PR #${pr.number} (${pr.title})…`);
+            await github.rest.pulls.merge({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              pull_number: pr.number,
+              merge_method: 'rebase'
+            });
+            console.log(`PR #${pr.number} merged via fast-forward.`);

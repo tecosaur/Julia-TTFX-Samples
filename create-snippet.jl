@@ -56,7 +56,6 @@ const issue_checkboxes = (;
     taskenv = IssueItemState("Initialise task environment"),
     taskscript = IssueItemState("Create task script"),
     taskrun = IssueItemState("Run task script"),
-    taskjuliaup = IssueItemState("Let JuliaUp do some setup"),
     taskjulia = IssueItemState("Determine minimum Julia version"))
 
 const issue_checkboxes_julia_versions = @NamedTuple{ver::String, status::Symbol}[]
@@ -279,7 +278,21 @@ const taskhash = readchomp(`git hash-object $taskfile`)
 checkstage!(:taskscript, :taskrun)
 @info "Performing trial run of task"
 
-const taskoutput = last(collect(eachline(`julia --project=$taskdir $taskfile`)))
+function juliacmd(version::VersionNumber = VERSION)
+    jlbin = Sys.which(string("julia-", version.major, ".", version.minor))
+    isnothing(jlbin) ||return Cmd([jlbin, "--startup-file=no"])
+    for jlupdir in ("~/.julia/juliaup", "~/.juliaup")
+        if isdir(expanduser(jlupdir))
+            jlupbin = joinpath(jlupdir, "bin", "juliaup")
+            isfile(jlupbin) && success(`$jlupbin add +$(version.major).$(version.minor)`) || continue
+            jlbin = joinpath(expanduser(jlupdir), "bin", "julia")
+            isfile(jlbin) && return Cmd([binfile, "+$(version.major).$(version.minor)", "--startup-file=no"])
+        end
+    end
+    error("Julia binary for $version not found")
+end
+
+const taskoutput = last(collect(eachline(`julia --startup-file=no --project=$taskdir $taskfile`)))
 
 readchomp(`git hash-object $taskfile`) == taskhash ||
     error("Task script was modified during run")
@@ -297,39 +310,7 @@ let taskstr = read(taskfile, String)
     write(taskfile, replace(taskstr, tasktimeplaceholder => timestr))
 end
 
-checkstage!(:taskrun, :taskjuliaup)
-@info "Letting JuliaUp do some setup"
-
-juliaup_dir::String = ""
-for test_juliaup_dir in ("~/.julia/juliaup", "~/.juliaup")
-    if isdir(expanduser(test_juliaup_dir))
-        global juliaup_dir = expanduser(test_juliaup_dir)
-        break
-    end
-end
-
-isempty(juliaup_dir) && error("JuliaUp not found in ~/.julia/juliaup or ~/.juliaup")
-
-juliaup_bin = Cmd([joinpath(juliaup_dir, "bin", "juliaup")])
-juliaup_julia = Cmd([joinpath(juliaup_dir, "bin", "julia")])
-
-const juliaup_installed_minors = Int[]
-
-for line in eachline(`$juliaup_bin status`)
-    ver = first(eachsplit(strip(line)))
-    startswith(ver, "1.") || continue
-    push!(juliaup_installed_minors, parse(Int, ver[3:end]))
-end
-
-for minorver in 0:VERSION.minor
-    minorver ∈ juliaup_installed_minors && continue
-    run(`$juliaup_bin add 1.$minorver`)
-end
-
-run(`$juliaup_bin update`)
-run(`$juliaup_julia +1.0 -e 'exit(0)'`)
-
-checkstage!(:taskjuliaup, :taskjulia)
+checkstage!(:taskrun, :taskjulia)
 @info "Determining minimum Julia version (TODO)"
 
 const trialrun_timeout = 60 * 5 # seconds
@@ -346,11 +327,12 @@ for minorver in 0:VERSION.minor
     update_issue_comment()
     jlver = "1.$minorver"
     @info "Trying Julia $jlver"
-    resolved = success(`$juliaup_julia +$jlver --project=$taskdir -e 'using Pkg; Pkg.resolve()'`)
+    julia = juliacmd(VersionNumber(1, minorver))
+    resolved = success(`$julia --project=$taskdir -e 'using Pkg; Pkg.resolve()'`)
     !resolved && continue
-    instantiate = success(`$juliaup_julia +$jlver --project=$taskdir -e 'using Pkg; Pkg.instantiate()'`)
+    instantiate = success(`$julia --project=$taskdir -e 'using Pkg; Pkg.instantiate()'`)
     !instantiate && continue
-    trialrun = run(`$juliaup_julia +$jlver --project=$taskdir $taskfile`, wait = false)
+    trialrun = run(`$julia --project=$taskdir $taskfile`, wait = false)
     for _ in 1:trialrun_timeout
         process_running(trialrun) || break
         sleep(1)
@@ -394,7 +376,6 @@ for reg in Pkg.Registry.reachable_registries()
         end
     end
 end
-
 
 
 # Cleanup

@@ -27,3 +27,10 @@ jobs:
               merge_method: 'rebase'
             });
             console.log(`PR #${pr.number} merged via fast-forward.`);
+
+            await github.rest.git.deleteRef({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              ref:   `heads/${pr.head.ref}`
+            });
+            console.log(`Deleted branch \`${pr.head.ref}\`.`);

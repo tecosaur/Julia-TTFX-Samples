@@ -307,12 +307,20 @@ jobs:
               body: pr.body + msg
             });
 
+            console.log("Merged #" + prNumber);
             await github.rest.pulls.merge({
               owner: context.repo.owner,
               repo:  context.repo.repo,
               pull_number: prNumber,
               merge_method: 'rebase'
             });
+
+            await github.rest.git.deleteRef({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              ref:   `heads/${pr.head.ref}`
+            });
+            console.log(`Deleted branch \`${pr.head.ref}\`.`);
 
       - name: Remove running label from issue
         if: always()

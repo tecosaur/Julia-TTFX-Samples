@@ -118,13 +118,15 @@ function issue_comment()
         if name === :taskjulia
             for (; ver, status) in issue_checkboxes_julia_versions
                 println(cio, "  - $ver: ", if status == :success
-                            "✅"
+                            "✅ succeeded"
                         elseif status == :testing
-                            "❔"
+                            "❔ testing"
+                        elseif status == :noinit
+                            "⛔ failed to resolve/instantiate"
                         elseif status == :failed
-                            "⛔"
+                            "🚨 failed"
                         elseif status == :timeout
-                            "⏰"
+                            "⏰ timed out"
                         else
                             ""
                         end)
@@ -392,18 +394,18 @@ rm(joinpath(taskdir, "Manifest.toml"), force=true)
 for minorver in 0:VERSION.minor
     # We could do a binary search, but it's probably quicker to fail to resolve on old versions
     # than succeed and install all the packages etc. on newer versions.
-    if !isempty(issue_checkboxes_julia_versions)
-        issue_checkboxes_julia_versions[end] = (; ver = issue_checkboxes_julia_versions[end].ver, status = :failed)
-    end
     push!(issue_checkboxes_julia_versions, (; ver = "1.$minorver", status = :testing))
     update_issue_comment()
     jlver = "1.$minorver"
     @info "Trying Julia $jlver"
     julia = unshared(juliacmd(VersionNumber(1, minorver)))
     resolved = success(`$julia --project=$taskdir -e 'using Pkg; Pkg.resolve()'`)
-    !resolved && continue
-    instantiate = success(`$julia --project=$taskdir -e 'using Pkg; Pkg.instantiate()'`)
-    !instantiate && continue
+    instantiated = resolved && success(`$julia --project=$taskdir -e 'using Pkg; Pkg.instantiate()'`)
+    if !instantiated
+        @warn "Julia $jlver failed to $(ifelse(resolved, "instantiate", "resolve"))"
+        issue_checkboxes_julia_versions[end] = (; ver = issue_checkboxes_julia_versions[end].ver, status = :noinit)
+        continue
+    end
     trialrun = run(`$julia --project=$taskdir $taskfile`, wait = false)
     for _ in 1:trialrun_timeout
         process_running(trialrun) || break
@@ -418,6 +420,8 @@ for minorver in 0:VERSION.minor
         update_issue_comment()
         Pkg.compat("julia", "$minjulia")
         break
+    else
+        issue_checkboxes_julia_versions[end] = (; ver = issue_checkboxes_julia_versions[end].ver, status = :failed)
     end
     rm(joinpath(taskdir, "Manifest.toml"), force=true)
 end

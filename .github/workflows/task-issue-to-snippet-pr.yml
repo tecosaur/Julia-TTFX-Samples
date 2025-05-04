@@ -203,20 +203,22 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_ISSUE_NUMBER: ${{ github.event.issue.number }}
+          SNIPPET_NAME: ${{ steps.parser.outputs.issueparser_task_name }}
+          SNIPPET_PACKAGE: ${{ steps.parser.outputs.issueparser_primary_package }}
+          SNIPPET_DEPS: ${{ steps.parser.outputs.issueparser_dependencies }}
+          SNIPPET_AUTHOR: ${{ github.event.issue.user.login }}
+          SNIPPET_ATTRIBUTION: ${{ steps.parser.outputs.issueparser_attribution }}
+          SNIPPET_TASK_CODE: ${{ steps.parser.outputs.issueparser_task_code }}
         run: |
           set -euo pipefail
-          cat <<'JULIA_TTFX_SNIPPET_SCRIPT' > snippet.jl
-          ${{ steps.parser.outputs.issueparser_task_code }}
-          JULIA_TTFX_SNIPPET_SCRIPT
           julia create-snippet.jl \
-            --name "${{ steps.parser.outputs.issueparser_task_name }}" \
-            --package "${{ steps.parser.outputs.issueparser_primary_package }}" \
-            --deps "${{ steps.parser.outputs.issueparser_dependencies }}" \
-            --author "${{ github.event.issue.user.login }}" \
-            --attribution "${{ steps.parser.outputs.issueparser_attribution }}" \
-            --snippet-file "snippet.jl" \
+            --name "$SNIPPET_NAME" \
+            --package "$SNIPPET_PACKAGE" \
+            --deps "$SNIPPET_DEPS" \
+            --author "$SNIPPET_AUTHOR" \
+            --attribution "$SNIPPET_ATTRIBUTION" \
+            --snippet "$SNIPPET_TASK_CODE" \
             2>&1 | tee create-snippet-logs.txt
-          rm snippet.jl
 
       - name: Remove logs on success
         if: steps.gensnippet.outcome == 'success'

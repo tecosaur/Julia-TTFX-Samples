@@ -13,15 +13,15 @@ task = let
     while !isempty(ARGS)
         arg = popfirst!(ARGS)
         if arg ∈ ("-n", "--name")
-            task_name = titlecase(popfirst!(ARGS))
+            task_name = titlecase(replace(popfirst!(ARGS), '\n' => ' '))
         elseif arg ∈ ("-p", "--package")
             primary_pkg = popfirst!(ARGS)
         elseif arg ∈ ("-d", "--deps")
             deps = map(String ∘ strip, split(popfirst!(ARGS), ',', keepempty=false))
         elseif arg ∈ ("-a", "--author")
-            author = popfirst!(ARGS)
+            author = replace(popfirst!(ARGS), '\n' => ' ')
         elseif arg ∈ ("-r", "--attribution")
-            attrib = popfirst!(ARGS)
+            attrib = replace(popfirst!(ARGS), '\n' => ' ')
         elseif arg ∈ ("-s", "--snippet")
             snippet = popfirst!(ARGS)
         elseif arg ∈ ("-f", "--snippet-file")
@@ -30,9 +30,17 @@ task = let
             throw(ArgumentError("Unknown argument: $arg"))
         end
     end
-    snippet = String(strip(chopsuffix(chopprefix(snippet, "```julia\n"), "\n```\n")))
+    snippet = String(strip(chopsuffix(chopprefix(strip(snippet), "```julia\n"), "\n```")))
     if any(isempty, (task_name, primary_pkg, author, snippet))
-        println("Usage: create-snippet.jl --name <task name> --package <pkg> [--deps <dep1,dep2>] --author <name> [--attribution <text>] --snippet <code>")
+        for (arg, val) in (("--name", task_name),
+                           ("--package", primary_pkg),
+                           ("--author", author),
+                           ("--snippet", snippet))
+            if isempty(val)
+                println("Argument error: missing/empty $arg")
+            end
+        end
+        println("\n  Usage: create-snippet.jl --name <task name> --package <pkg> [--deps <dep1,dep2>] --author <name> [--attribution <text>] --snippet <code>")
         exit(1)
     end
     (name = task_name, package = primary_pkg, deps = deps,
@@ -162,7 +170,7 @@ const taskdir = joinpath(@__DIR__,
                          "tasks",
                          string(uppercase(first(task.package))),
                          task.package,
-                         replace(task.name, r"[^A-Za-z0-9\-_]" => '-'))
+                         strip(replace(task.name, r"[^A-Za-z0-9\-_]" => '-'), '-'))
 const taskfile = joinpath(taskdir, "task.jl")
 
 @info "Creating task $(relpath(taskdir, @__DIR__))"

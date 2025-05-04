@@ -153,7 +153,7 @@ for key in keys(ENV)
 end
 
 
-# Task creation
+# Task folder creation
 
 const git_initial_head = readchomp(`git rev-parse HEAD`)
 const git_initial_index = readchomp(`git hash-object .git/index`)
@@ -206,6 +206,34 @@ append!(allpkgs, task.deps)
 !isempty(allpkgs) && Pkg.add(allpkgs)
 
 const time_to_install = time() - time_preinstall
+
+
+# Package authorship
+
+const mdeps = Pkg.Types.read_manifest(joinpath(taskdir, "Manifest.toml")).deps
+rm(joinpath(taskdir, "Manifest.toml"))
+
+for (uuid, pkg) in mdeps
+    if pkg.name == task.package || pkg.name ∈ task.deps
+        Pkg.compat(pkg.name, ">=$(pkg.version)")
+    end
+end
+
+for reg in Pkg.Registry.reachable_registries()
+    for (uuid, regpkg) in reg
+        if regpkg.name == task.package
+            repourl = chopsuffix(Pkg.Registry.registry_info(regpkg).repo, ".git")
+            ghrepo = match(r"https://github.com/(?<owner>[^/]+)/(?<repo>[^/]+)", repourl)
+            if !isnothing(ghrepo)
+                println(gh_output, "pkg_repo_owner=", ghrepo["owner"])
+                println(gh_output, "pkg_repo_name=", ghrepo["repo"])
+            end
+        end
+    end
+end
+
+
+# Task script creation
 
 checkstage!(:taskenv, :taskscript)
 @info "Constructing task script"
@@ -360,44 +388,29 @@ for minorver in 0:VERSION.minor
     rm(joinpath(taskdir, "Manifest.toml"), force=true)
 end
 
-const mdeps = Pkg.Types.read_manifest(joinpath(taskdir, "Manifest.toml")).deps
-rm(joinpath(taskdir, "Manifest.toml"))
-
-for (uuid, pkg) in mdeps
-    if pkg.name == task.package || pkg.name ∈ task.deps
-        Pkg.compat(pkg.name, ">=$(pkg.version)")
-    end
-end
-
-rm(joinpath(taskdir, "Manifest.toml"), force=true)
+
+# Cleanup
 
 checkstage!(:taskjulia)
 @info "Finishing up"
 
-for reg in Pkg.Registry.reachable_registries()
-    for (uuid, regpkg) in reg
-        if regpkg.name == task.package
-            repourl = chopsuffix(Pkg.Registry.registry_info(regpkg).repo, ".git")
-            ghrepo = match(r"https://github.com/(?<owner>[^/]+)/(?<repo>[^/]+)", repourl)
-            if !isnothing(ghrepo)
-                println(gh_output, "pkg_repo_owner=", ghrepo["owner"])
-                println(gh_output, "pkg_repo_name=", ghrepo["repo"])
-            end
-        end
-    end
-end
-
-
-# Cleanup
+rm(joinpath(taskdir, "Manifest.toml"), force=true)
 
 let allowed = (relpath(taskfile, @__DIR__),
                relpath(joinpath(taskdir, "Project.toml"), @__DIR__),
                "create-snippet-logs.txt",
                "snippet.jl")
+    unautherised = String[]
     for line in eachline(`git status --untracked-files=all --porcelain=v1`)
         if !(startswith(line, "?? ") && line[4:end] in allowed)
-            error("Unauthorized change detected: $line (only $(join(allowed, ", ", " and ")) allowed)")
+            push!(unautherised, line[4:end])
         end
+    end
+    if isempty(unautherised)
+    elseif length(unautherised) == 1
+        error("Unauthorized change detected: $(first(unautherised))\n\n The only allowed files are:\n - $(join(allowed, "\n - "))")
+    else
+        error("Unauthorized changes detected:\n - $(join(unautherised, "\n - "))\n\n The only allowed files are:\n - $(join(allowed, "\n - "))")
     end
 end
 

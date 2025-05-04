@@ -341,7 +341,7 @@ jobs:
               repo: context.repo.repo,
               issue_number: context.payload.issue.number,
               body:
-                "⚠️ `create-snippet.jl` failed. Logs:\n\n```bash\n" +
+                "⚠️ `create-snippet.jl` failed. Logs (look for an error at the end):\n\n```bash\n" +
                 logs +
                 "\n```\n\nIf you can resolve the error, please open a new task issue with corrected code."
             });

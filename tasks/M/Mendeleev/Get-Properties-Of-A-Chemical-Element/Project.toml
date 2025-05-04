@@ -1,0 +1,6 @@
+[deps]
+Mendeleev = "c116f080-063d-490a-9873-2b5b2cce4c34"
+
+[compat]
+Mendeleev = ">=1.0.1"
+julia = "1.9.0"

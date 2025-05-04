@@ -9,6 +9,10 @@ testing.
 Manual PRs are also accepted, but I think you'll find the issue-based approach
 pretty smooth 😎.
 
+Tasks should be a tiny representative workload that doesn't require network
+access or modify the system state beyond creating files in temp and cache
+directories.
+
 * Using this collection
 
 TTFX workloads can be found under =tasks/<pkg>/*= each workload consists of a

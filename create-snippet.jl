@@ -275,6 +275,14 @@ const taskhash = readchomp(`git hash-object $taskfile`)
 
 # Validation
 
+function unshared(cmd::Cmd)
+    @static if occursin("Ubuntu", read(`lsb_release -si`, String))
+        `unshare --user --net --ipc --pid --kill-child $cmd`
+    else
+        `unshare --map-current-user --mount --net --ipc --pid --kill-child $cmd`
+    end
+end
+
 checkstage!(:taskscript, :taskrun)
 @info "Performing trial run of task"
 
@@ -292,7 +300,9 @@ function juliacmd(version::VersionNumber = VERSION)
     error("Julia binary for $version not found")
 end
 
-const taskoutput = last(collect(eachline(`julia --startup-file=no --project=$taskdir $taskfile`)))
+run(`julia --startup-file=no --project=$taskdir -e 'using Pkg; Pkg.instantiate()'`)
+
+const taskoutput = last(collect(eachline(unshared(`julia --startup-file=no --project=$taskdir $taskfile`))))
 
 readchomp(`git hash-object $taskfile`) == taskhash ||
     error("Task script was modified during run")
@@ -327,7 +337,7 @@ for minorver in 0:VERSION.minor
     update_issue_comment()
     jlver = "1.$minorver"
     @info "Trying Julia $jlver"
-    julia = juliacmd(VersionNumber(1, minorver))
+    julia = unshared(juliacmd(VersionNumber(1, minorver)))
     resolved = success(`$julia --project=$taskdir -e 'using Pkg; Pkg.resolve()'`)
     !resolved && continue
     instantiate = success(`$julia --project=$taskdir -e 'using Pkg; Pkg.instantiate()'`)

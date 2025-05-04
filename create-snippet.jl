@@ -50,6 +50,31 @@ end
 
 # Github action setup
 
+function cierror(msg::String)
+    if haskey(ENV, "CI")
+        println(stdout, "```\n**🚨 Error:**\n```")
+        st = Base.StackTraces.stacktrace(backtrace())
+        i = firstindex(st)
+        reachedself = false
+        while i <= length(st)
+            sf = st[i]
+            if sf.file == Symbol(@__FILE__)
+                reachedself = true
+            end
+            if sf.func == :include && reachedself
+                deleteat!(st, i:length(st))
+                break
+            end
+            i += 1
+        end
+        print(stdout, "ERROR: ")
+        showerror(stdout, ErrorException(strip(msg) * '\n'), st)
+        exit(1)
+    else
+        error(msg)
+    end
+end
+
 const gh_token = get(ENV, "GITHUB_TOKEN", "")
 const gh_repo = get(ENV, "GITHUB_REPOSITORY", "")
 const gh_issue = get(ENV, "GITHUB_ISSUE_NUMBER", "")
@@ -175,7 +200,7 @@ const taskfile = joinpath(taskdir, "task.jl")
 
 @info "Creating task $(relpath(taskdir, @__DIR__))"
 
-if isdir(taskdir)
+if isfile(taskfile)
     local taskauthor = ""
     for line in eachline(taskfile)
         if startswith(line, "# Author: ")
@@ -188,9 +213,9 @@ if isdir(taskdir)
         end
     end
     if isempty(taskauthor)
-        throw(ArgumentError("Task already exists: $taskdir"))
+        cierror("Task already exists: $taskdir")
     elseif taskauthor != task.author
-        throw(ArgumentError("Task already exists from a different author: $taskdir"))
+        cierror("Task already exists from a different author: $taskdir")
     else
         @info "Task already exists, replacing"
         println(gh_output, "task_nature=", "Task update")
@@ -219,7 +244,7 @@ const time_to_install = time() - time_preinstall
 # Package authorship
 
 const mdeps = Pkg.Types.read_manifest(joinpath(taskdir, "Manifest.toml")).deps
-rm(joinpath(taskdir, "Manifest.toml"))
+rm(joinpath(taskdir, "Manifest.toml"), force=true)
 
 for (uuid, pkg) in mdeps
     if pkg.name == task.package || pkg.name ∈ task.deps
@@ -326,14 +351,15 @@ function juliacmd(version::VersionNumber = VERSION)
     jlbin = Sys.which(string("julia-", version.major, ".", version.minor))
     isnothing(jlbin) ||return Cmd([jlbin, "--startup-file=no"])
     for jlupdir in ("~/.julia/juliaup", "~/.juliaup")
-        if isdir(expanduser(jlupdir))
+        jlupdir = expanduser(jlupdir)
+        if isdir(jlupdir)
             jlupbin = joinpath(jlupdir, "bin", "juliaup")
-            isfile(jlupbin) && success(`$jlupbin add +$(version.major).$(version.minor)`) || continue
+            isfile(jlupbin) && success(`$jlupbin add $(version.major).$(version.minor)`) || continue
             jlbin = joinpath(expanduser(jlupdir), "bin", "julia")
-            isfile(jlbin) && return Cmd([binfile, "+$(version.major).$(version.minor)", "--startup-file=no"])
+            isfile(jlbin) && return Cmd([jlbin, "+$(version.major).$(version.minor)", "--startup-file=no"])
         end
     end
-    error("Julia binary for $version not found")
+    cierror("Julia binary for $version not found")
 end
 
 run(`julia --startup-file=no --project=$taskdir -e 'using Pkg; Pkg.instantiate()'`)
@@ -341,7 +367,7 @@ run(`julia --startup-file=no --project=$taskdir -e 'using Pkg; Pkg.instantiate()
 const taskoutput = last(collect(eachline(unshared(`julia --startup-file=no --project=$taskdir $taskfile`))))
 
 readchomp(`git hash-object $taskfile`) == taskhash ||
-    error("Task script was modified during run")
+    cierror("Task script was modified during run")
 
 const tasktimes = map(t -> parse(Float64, t), split(chopsuffix(taskoutput, " seconds"), ','))
 @assert length(tasktimes) == 3
@@ -357,7 +383,7 @@ let taskstr = read(taskfile, String)
 end
 
 checkstage!(:taskrun, :taskjulia)
-@info "Determining minimum Julia version (TODO)"
+@info "Determining minimum Julia version"
 
 const trialrun_timeout = 60 * 5 # seconds
 
@@ -414,11 +440,20 @@ let allowed = (relpath(taskfile, @__DIR__),
             push!(unautherised, line[4:end])
         end
     end
-    if isempty(unautherised)
-    elseif length(unautherised) == 1
-        error("Unauthorized change detected: $(first(unautherised))\n\n The only allowed files are:\n - $(join(allowed, "\n - "))")
-    else
-        error("Unauthorized changes detected:\n - $(join(unautherised, "\n - "))\n\n The only allowed files are:\n - $(join(allowed, "\n - "))")
+    if !isempty(unautherised)
+        cierror("""
+                Unauthorized change$(ifelse(length(unautherised) == 1, "s", "")) detected:
+                - $(join(unautherised, "\n- "))
+                The only allowed files are:
+                - $(relpath(taskfile, @__DIR__))
+                - $(relpath(joinpath(taskdir, "Project.toml"), @__DIR__))
+
+                If there's no easy way to avoid creating these files, we recommend
+                either creating them in the temp directory, or limiting them to the
+                task directory and cleaning them up (i.e. invoking `rm`) yourself
+                (yes, it will increase the task runtime slightly, but if you're creating
+                tempfiles it probably won't be enough to matter anyway).
+                """)
     end
 end
 
@@ -426,10 +461,10 @@ const git_final_head  = readchomp(`git rev-parse HEAD`)
 const git_final_index = readchomp(`git hash-object .git/index`)
 
 if git_initial_head != git_final_head
-    error("Git HEAD was sneakily rewritten from $git_initial_head to $git_final_head")
+    cierror("Git HEAD was sneakily rewritten from $git_initial_head to $git_final_head")
 end
 if git_initial_index != git_final_index
-    error("Git index was sneakily modified from $git_initial_index to $git_final_index")
+    cierror("Git index was sneakily modified from $git_initial_index to $git_final_index")
 end
 
 #= # Delete the progress comment if the task was created successfully

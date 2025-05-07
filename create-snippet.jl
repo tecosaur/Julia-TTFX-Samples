@@ -399,11 +399,11 @@ for minorver in 0:VERSION.minor
     jlver = "1.$minorver"
     @info "Trying Julia $jlver"
     julia = unshared(juliacmd(VersionNumber(1, minorver)))
-    resolved = success(`$julia --project=$taskdir -e 'using Pkg; Pkg.resolve()'`)
-    instantiated = resolved && success(`$julia --project=$taskdir -e 'using Pkg; Pkg.instantiate()'`)
+    resolved = success(pipeline(`$julia --project=$taskdir -e 'using Pkg; Pkg.resolve()'`; stdout, stderr))
+    instantiated = resolved && success(pipeline(`$julia --project=$taskdir -e 'using Pkg; Pkg.instantiate()'`; stdout, stderr))
     if !instantiated
-        @warn "Julia $jlver failed to $(ifelse(resolved, "instantiate", "resolve"))"
         issue_checkboxes_julia_versions[end] = (; ver = issue_checkboxes_julia_versions[end].ver, status = :noinit)
+        rm(joinpath(taskdir, "Manifest.toml"), force=true)
         continue
     end
     trialrun = run(`$julia --project=$taskdir $taskfile`, wait = false)

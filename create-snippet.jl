@@ -245,15 +245,6 @@ const time_to_install = time() - time_preinstall
 
 # Package authorship
 
-const mdeps = Pkg.Types.read_manifest(joinpath(taskdir, "Manifest.toml")).deps
-rm(joinpath(taskdir, "Manifest.toml"), force=true)
-
-for (uuid, pkg) in mdeps
-    if pkg.name == task.package || pkg.name ∈ task.deps
-        Pkg.compat(pkg.name, ">=$(pkg.version)")
-    end
-end
-
 for reg in Pkg.Registry.reachable_registries()
     for (uuid, regpkg) in reg
         if regpkg.name == task.package
@@ -390,7 +381,6 @@ checkstage!(:taskrun, :taskjulia)
 const trialrun_timeout = 60 * 5 # seconds
 
 minjulia::VersionNumber = VERSION
-rm(joinpath(taskdir, "Manifest.toml"), force=true)
 for minorver in 0:VERSION.minor
     # We could do a binary search, but it's probably quicker to fail to resolve on old versions
     # than succeed and install all the packages etc. on newer versions.
@@ -398,11 +388,11 @@ for minorver in 0:VERSION.minor
     update_issue_comment()
     @info "Trying Julia 1.$minorver"
     julia = juliacmd(VersionNumber(1, minorver))
+    rm(joinpath(taskdir, "Manifest.toml"), force=true)
     resolved = success(pipeline(`$julia --project=$taskdir -e 'using Pkg; Pkg.resolve()'`; stdout, stderr))
     instantiated = resolved && success(pipeline(`$julia --project=$taskdir -e 'using Pkg; Pkg.instantiate()'`; stdout, stderr))
     if !instantiated
         issue_checkboxes_julia_versions[end] = (; ver = issue_checkboxes_julia_versions[end].ver, status = :noinit)
-        rm(joinpath(taskdir, "Manifest.toml"), force=true)
         continue
     end
     trialrun = run(`$(unshared(julia)) --project=$taskdir $taskfile`, wait = false)
@@ -422,7 +412,15 @@ for minorver in 0:VERSION.minor
     else
         issue_checkboxes_julia_versions[end] = (; ver = issue_checkboxes_julia_versions[end].ver, status = :failed)
     end
-    rm(joinpath(taskdir, "Manifest.toml"), force=true)
+end
+
+const mdeps = Pkg.Types.read_manifest(joinpath(taskdir, "Manifest.toml")).deps
+rm(joinpath(taskdir, "Manifest.toml"), force=true)
+
+for (uuid, pkg) in mdeps
+    if pkg.name == task.package || pkg.name ∈ task.deps
+        Pkg.compat(pkg.name, ">=$(pkg.version)")
+    end
 end
 
 

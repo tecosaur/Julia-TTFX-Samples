@@ -1,0 +1,6 @@
+[deps]
+QuantumAlgebra = "1b9008d5-2a9d-4901-8cfb-44bb87795b64"
+
+[compat]
+QuantumAlgebra = ">=1.5.1"
+julia = "1.7.0"

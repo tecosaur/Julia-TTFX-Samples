@@ -396,9 +396,8 @@ for minorver in 0:VERSION.minor
     # than succeed and install all the packages etc. on newer versions.
     push!(issue_checkboxes_julia_versions, (; ver = "1.$minorver", status = :testing))
     update_issue_comment()
-    jlver = "1.$minorver"
-    @info "Trying Julia $jlver"
-    julia = unshared(juliacmd(VersionNumber(1, minorver)))
+    @info "Trying Julia 1.$minorver"
+    julia = juliacmd(VersionNumber(1, minorver))
     resolved = success(pipeline(`$julia --project=$taskdir -e 'using Pkg; Pkg.resolve()'`; stdout, stderr))
     instantiated = resolved && success(pipeline(`$julia --project=$taskdir -e 'using Pkg; Pkg.instantiate()'`; stdout, stderr))
     if !instantiated
@@ -406,7 +405,7 @@ for minorver in 0:VERSION.minor
         rm(joinpath(taskdir, "Manifest.toml"), force=true)
         continue
     end
-    trialrun = run(`$julia --project=$taskdir $taskfile`, wait = false)
+    trialrun = run(`$(unshared(julia)) --project=$taskdir $taskfile`, wait = false)
     for _ in 1:trialrun_timeout
         process_running(trialrun) || break
         sleep(1)
